@@ -1,379 +1,380 @@
 # lau-measure-agents
 
-> Rigorous measure theory: sigma-algebras, Lebesgue integration, Radon-Nikodym derivatives, and convergence theorems.
+**Measure theory for agents — the rigorous foundation of integration and probability**
+
+A Rust library implementing measure theory from the ground up: σ-algebras, measures, Lebesgue measure, measurable functions, the Lebesgue integral with convergence theorems, product measures with Fubini's theorem, Radon-Nikodym derivatives, Lebesgue decomposition, Riesz representation, pushforward measures, and agent belief-state systems built on these foundations.
+
+134 tests · 12 modules · ~3,600 LOC
+
+---
 
 ## What This Does
 
-This crate implements the foundations of measure theory — the mathematical framework underlying integration, probability, and functional analysis. It covers sigma-algebras and measurable spaces, measures (counting, Dirac, probability, Lebesgue), measurable functions, the Lebesgue integral with all three major convergence theorems (Monotone Convergence, Fatou's Lemma, Dominated Convergence), product measures and Fubini's theorem, the Radon-Nikodym theorem, Lebesgue decomposition, Riesz representation, pushforward measures, and an agent application layer that models observations as measurable functions and belief updates via Radon-Nikodym derivatives.
+Measure theory is the **rigorous mathematical framework** underlying probability, integration, and analysis. This library implements it computationally for finite/discrete spaces:
 
-Use this when you need mathematically rigorous integration beyond Riemann, or when building probabilistic agent systems that require proper measure-theoretic foundations.
+- **σ-algebras** — collections of measurable sets, closed under complements and countable unions; generated from arbitrary subsets; validated for closure properties
+- **Measures** — non-negative countably additive set functions: counting, Dirac (point mass), uniform, probability measures; signed measures with Jordan decomposition
+- **Lebesgue measure** — intervals, boxes in ℝⁿ, outer measure approximation, simple function integration
+- **Measurable functions** — maps between measurable spaces with validated preimages; indicator functions, simple functions
+- **Lebesgue integral** — integration of real-valued functions over measure spaces; convergence theorems (MCT, Fatou, DCT); Hölder's inequality; Lᵖ norms
+- **Product measures** — Fubini's theorem for iterated integration; Tonelli's theorem for non-negative functions
+- **Radon-Nikodym theorem** — density functions dν/dμ when ν ≪ μ; chain rule; log-derivative; Bayesian belief updates
+- **Lebesgue decomposition** — ν = ν_ac + ν_singular relative to a reference measure; Hahn decomposition for signed measures
+- **Riesz representation** — every positive linear functional ↔ integration against a measure
+- **Pushforward measure** — measure induced by a measurable map; change of variables
+- **Agent systems** — state spaces as measurable spaces, beliefs as probability measures, observations as measurable functions, belief updates via Radon-Nikodym, expected utility as Lebesgue integral
 
-## The Key Idea
+---
 
-Measure theory generalizes "length," "area," and "volume" to arbitrary sets. A **measure** μ assigns non-negative numbers to sets in a sigma-algebra, with countable additivity for disjoint unions. The **Lebesgue integral** extends integration to functions that Riemann can't handle — it works by partitioning the *range* of the function rather than the domain. This gives you powerful convergence theorems: under mild conditions, the limit of integrals equals the integral of the limit.
+## Key Idea
+
+Probability is just measure theory where μ(Ω) = 1. Every probabilistic concept — random variables, expectations, Bayes' theorem, conditional probability — has a precise measure-theoretic definition. This library makes those definitions concrete and computational:
+
+1. **Belief states = probability measures** on a σ-algebra of states
+2. **Observations = measurable functions** mapping states to observations
+3. **Belief updates = Radon-Nikodym derivatives** (Bayes' rule is dπ(·|obs)/dπ)
+4. **Expected utility = Lebesgue integral** of utility against belief
+
+This gives agents a **mathematically rigorous** foundation for reasoning under uncertainty.
+
+---
 
 ## Install
 
-```bash
-cargo add lau-measure-agents
+Add to your `Cargo.toml`:
+
+```toml
+[dependencies]
+lau-measure-agents = { git = "https://github.com/SuperInstance/lau-measure-agents" }
 ```
+
+### Dependencies
+
+- `nalgebra` 0.33 — linear algebra (Lebesgue measure in ℝⁿ)
+- `serde` 1.x (with `derive`) — serialization
+- `approx` 0.5 (dev) — floating-point comparison
+
+---
 
 ## Quick Start
 
 ```rust
 use lau_measure_agents::*;
-use nalgebra::DVector;
 
-fn main() {
-    // Build a sigma-algebra (power set) on {a, b, c}
-    let universe = Subset::from_slice(&["a", "b", "c"]);
-    let algebra = SigmaAlgebra::power_set(universe);
+// --- Sigma-algebra ---
+let universal = Subset::from_slice(&["sunny", "cloudy", "rainy"]);
+let algebra = SigmaAlgebra::power_set(universal);
 
-    // Create a probability measure
-    let mu = Measure::probability(&algebra, &[
-        ("a".into(), 0.5), ("b".into(), 0.3), ("c".into(), 0.2),
-    ]).unwrap();
-    println!("μ({{a}}) = {}", mu.measure_of(&Subset::from_slice(&["a"])));
-    println!("Is probability: {}", mu.is_probability());
+// --- Measure (probability) ---
+let weather = Measure::probability(&algebra, &[
+    ("sunny".into(), 0.5),
+    ("cloudy".into(), 0.3),
+    ("rainy".into(), 0.2),
+]).unwrap();
 
-    // Integrate a function: f(a)=2, f(b)=4, f(c)=6
-    let f = RealValuedFunction::new(vec![("a", 2.0), ("b", 4.0), ("c", 6.0)]);
-    let integral = integrate(&f, &mu);
-    println!("∫ f dμ = {}", integral); // 0.5*2 + 0.3*4 + 0.2*6 = 3.4
+// --- Measurable function (observation) ---
+let obs = MeasurableFunction::new(
+    "sky_obs",
+    &algebra, &algebra,
+    &[
+        ("sunny".into(), "bright".into()),
+        ("cloudy".into(), "dim".into()),
+        ("rainy".into(), "dim".into()),
+    ],
+).unwrap();
 
-    // Lebesgue measure on R
-    let leb = LebesgueMeasure::new(1);
-    let interval = Interval::new(0.0, 5.0).unwrap();
-    println!("λ([0,5]) = {}", leb.measure_interval(&interval)); // 5.0
+// Preimage: obs⁻¹({"dim"}) = {"cloudy", "rainy"}
+let dim_set = Subset::from_slice(&["dim"]);
+let preimage = obs.preimage(&dim_set);
 
-    // Simple function integration
-    let sf = SimpleIntervalFunction::new(vec![
-        (Interval::new(0.0, 1.0).unwrap(), 3.0),
-        (Interval::new(1.0, 4.0).unwrap(), 2.0),
-    ]);
-    println!("∫ f dλ = {}", sf.integrate()); // 3*1 + 2*3 = 9
-}
+// --- Lebesgue integral ---
+let utility = RealValuedFunction::new(vec![
+    ("sunny", 10.0), ("cloudy", 3.0), ("rainy", -2.0),
+]);
+let expected = integrate(&utility, &weather);
+// = 10*0.5 + 3*0.3 + (-2)*0.2 = 5.5
+
+// --- Agent with beliefs ---
+let space = AgentStateSpace::discrete("weather", &["sunny", "cloudy", "rainy"]);
+let belief = BeliefState::uniform(&space);
+let utility_fn = UtilityFunction::new(vec![
+    ("sunny", 10.0), ("cloudy", 3.0), ("rainy", -2.0),
+]);
+let agent = Agent::new("planner", &space, &utility_fn, &[
+    ("sunny", "bright"), ("cloudy", "dim"), ("rainy", "dim"),
+]);
+let eu = agent.expected_utility(&belief, &space);
+
+// --- Pushforward measure ---
+let pushed = pushforward("sky_dist", &obs, &weather, &algebra, &algebra);
+
+// --- Radon-Nikodym (Bayes' rule) ---
+let prior = Measure::uniform(&algebra).unwrap();
+let posterior = Measure::probability(&algebra, &[
+    ("sunny".into(), 0.7), ("cloudy".into(), 0.2), ("rainy".into(), 0.1),
+]).unwrap();
+let rn = RadonNikodymDerivative::compute(&posterior, &prior, &algebra);
+// dν/dμ is the Bayes factor
 ```
+
+---
 
 ## API Reference
 
-### Sigma-Algebras
+### `sigma_algebra` — σ-Algebras
 
-#### `Subset`
-A finite subset of a universal set.
+| Type / Function | Description |
+|---|---|
+| `Subset(BTreeSet<String>)` | A measurable subset of the universal set |
+| `Subset::empty()` | The empty set |
+| `Subset::from_slice(elems)` | Construct from string slice |
+| `a.union(b)` | Set union |
+| `a.intersection(b)` | Set intersection |
+| `a.complement(universal)` | Set complement |
+| `a.difference(b)` | Set difference |
+| `SigmaAlgebra` | A σ-algebra: collection of measurable sets |
+| `SigmaAlgebra::trivial(universal)` | {∅, Ω} — the trivial σ-algebra |
+| `SigmaAlgebra::power_set(universal)` | 2^Ω — the finest σ-algebra |
+| `SigmaAlgebra::generate(universal, generators)` | Generated σ-algebra (smallest containing generators) |
+| `sa.is_measurable(s)` | Check if a set is in the σ-algebra |
+| `sa.validate()` | Verify closure under complement and countable union |
+| `MeasurableSpace` | A set equipped with a σ-algebra |
 
-```rust
-let s = Subset::from_slice(&["a", "b", "c"]);
-let empty = Subset::empty();
+### `measure` — Measures
 
-s.contains("a");
-s.len();
-s.union(&other);
-s.intersection(&other);
-s.difference(&other);
-s.complement(&universe);
-s.is_subset_of(&other);
-```
+| Type / Function | Description |
+|---|---|
+| `Measure` | A non-negative countably additive set function |
+| `Measure::new(name, algebra, values)` | Create from explicit set-measure pairs |
+| `Measure::counting(algebra)` | Counting measure: μ(A) = \|A\| |
+| `Measure::dirac(algebra, point)` | Dirac measure: δ_x(A) = 1 if x ∈ A |
+| `Measure::uniform(algebra)` | Uniform probability measure |
+| `Measure::probability(algebra, weights)` | Weighted probability measure |
+| `m.measure_of(set)` | μ(A) — measure of a set |
+| `m.total_mass()` | μ(Ω) |
+| `m.is_probability()` | Check μ(Ω) = 1 |
+| `m.is_finite()` | Check μ(Ω) < ∞ |
+| `m.is_absolutely_continuous_wrt(other)` | Check ν ≪ μ |
+| `m.is_singular_with(other)` | Check ν ⊥ μ |
+| `m.scale(c)` | c · μ |
+| `m.add(other)` | μ + ν |
+| `SignedMeasure` | A signed measure (allows negative values) |
+| `sm.jordan_decomposition()` | μ = μ⁺ - μ⁻ (Jordan decomposition) |
 
-#### `SigmaAlgebra`
-A collection of measurable sets closed under complement and countable union.
+### `lebesgue` — Lebesgue Measure on ℝⁿ
 
-```rust
-// Construction
-SigmaAlgebra::trivial(universe)           // {∅, Ω}
-SigmaAlgebra::power_set(universe)          // all subsets
-SigmaAlgebra::generate(universe, &[seed]) // smallest σ-algebra containing seeds
+| Type / Function | Description |
+|---|---|
+| `Interval` | A closed interval [a, b] |
+| `Interval::length()` | b - a (Lebesgue measure of interval) |
+| `Interval::intersection(other)` | Interval intersection |
+| `Interval::complement(lo, hi)` | Complement within bounds |
+| `Box` | A box in ℝⁿ (Cartesian product of intervals) |
+| `Box::volume()` | ∏(b_i - a_i) (Lebesgue measure of box) |
+| `LebesgueMeasure` | Approximate Lebesgue measure on ℝⁿ |
+| `lm.measure_box(b)` | Volume of a box |
+| `lm.outer_measure_approx(points, ε)` | Outer measure approximation |
+| `SimpleIntervalFunction` | Piecewise constant on intervals |
+| `sif.integrate()` | ∫ f dλ over its support |
 
-// Operations
-sa.is_measurable(&set);
-sa.countable_union(&[s1, s2]);
-sa.countable_intersection(&[s1, s2]);
-sa.complement(&set);
-sa.measurable_sets();
-sa.universal();
-sa.size();
-sa.validate();  // check σ-algebra axioms
-```
+### `measurable_function` — Measurable Functions
 
-#### `MeasurableSpace`
-A set equipped with a sigma-algebra.
+| Type / Function | Description |
+|---|---|
+| `MeasurableFunction` | A map f: (Ω, 𝔉) → (Ω', 𝔊') validated for measurability |
+| `MeasurableFunction::new(name, domain, codomain, mapping)` | Create with measurability check |
+| `mf.apply(elem)` | f(x) |
+| `mf.preimage(set)` | f⁻¹(B) — preimage of a measurable set |
+| `mf.image(set)` | f(A) — direct image |
+| `mf.compose(other)` | g ∘ f — composition |
+| `IndicatorFunction` | 𝟙_A(x) = 1 if x ∈ A, 0 otherwise |
+| `SimpleFunction` | Σ cᵢ · 𝟙_{Aᵢ} — simple function on measurable sets |
+| `sf.integrate(mu)` | ∫ f dμ (exact for simple functions) |
 
-```rust
-let ms = MeasurableSpace::new(algebra);
-ms.sigma_algebra();
-ms.universal();
-```
+### `integral` — Lebesgue Integral
 
-### Measures
+| Type / Function | Description |
+|---|---|
+| `RealValuedFunction` | A function f: Ω → ℝ on a finite space |
+| `integrate(f, mu)` | ∫ f dμ — Lebesgue integral |
+| `integrate_over(f, mu, set)` | ∫_A f dμ — integral over a subset |
+| `monotone_convergence(f_n, mu)` | Verify MCT: lim ∫ fₙ dμ = ∫ lim fₙ dμ |
+| `fatou_lemma(f_n, mu)` | Fatou: ∫ lim inf fₙ ≤ lim inf ∫ fₙ |
+| `dominated_convergence(f_n, mu, g)` | DCT: if \|fₙ\| ≤ g, swap limit and integral |
+| `holders_inequality(f, g, mu, p, q)` | Hölder: \|fg\|₁ ≤ \|f\|_p · \|g\|_q |
+| `lp_norm(f, mu, p)` | Lᵖ norm (\|f\|_p = (∫ \|f\|ᵖ dμ)^{1/p}) |
 
-#### `Measure`
-A non-negative countably additive set function.
+### `product` — Product Measures & Fubini's Theorem
 
-```rust
-// Construction
-Measure::new("my_mu", &algebra, &[(set, value)])?;
-Measure::counting(&algebra);                        // μ(A) = |A|
-Measure::dirac(&algebra, "a")?;                     // point mass at "a"
-Measure::probability(&algebra, &[("a", 0.5)])?;     // total mass = 1
-Measure::uniform(&algebra)?;                        // equal weights
+| Function | Description |
+|---|---|
+| `product_sigma_algebra(sa1, sa2)` | Construct 𝔉 ⊗ 𝔊 |
+| `product_measure(mu1, mu2)` | Construct μ × ν |
+| `rectangle_measure(mu1, mu2, A, B)` | (μ × ν)(A × B) = μ(A) · ν(B) |
+| `fubini_integrate(f, mu1, mu2)` | ∫∫ f d(μ × ν) = ∫ (∫ f(x,y) dν) dμ |
+| `tonelli_integrate(f, mu1, mu2)` | Tonelli's theorem (non-negative case) |
 
-// Evaluation
-mu.measure_of(&set);
-mu.total_mass();
-mu.is_probability();
-mu.is_finite();
+### `radon_nikodym` — Radon-Nikodym Theorem
 
-// Relationships
-mu.is_absolutely_continuous_wrt(&nu);  // ν ≪ μ?
-mu.is_singular_with(&nu);              // μ ⊥ ν?
+| Type / Function | Description |
+|---|---|
+| `RadonNikodymDerivative` | dν/dμ — the density function |
+| `RadonNikodymDerivative::compute(nu, mu, algebra)` | Compute dν/dμ element-by-element |
+| `rn.eval(elem)` | Evaluate dν/dμ at a point |
+| `rn.verify(nu, mu, sets)` | Verify ν(A) = ∫_A (dν/dμ) dμ for test sets |
+| `rn.chain_rule(other)` | Chain rule: dλ/dμ = (dλ/dν)(dν/dμ) |
+| `rn.log_derivative()` | log(dν/dμ) — log-likelihood ratio |
+| `BeliefUpdate` | Bayesian update: prior → posterior via likelihood |
+| `BeliefUpdate::from_likelihood(prior, likelihood, algebra)` | Bayes' rule as Radon-Nikodym |
 
-// Arithmetic
-mu.scale(2.0);
-mu.add(&other);
-mu.subtract(&other);
-```
+### `decomposition` — Lebesgue & Hahn Decomposition
 
-#### `SignedMeasure`
-A measure that can take negative values.
+| Type / Function | Description |
+|---|---|
+| `LebesgueDecomposition` | ν = ν_ac + ν_singular |
+| `LebesgueDecomposition::compute(nu, mu)` | Decompose ν relative to μ |
+| `ld.verify(nu, elements)` | Verify decomposition correctness |
+| `ld.is_pure()` | Check if purely AC, purely singular, or mixed |
+| `HahnDecomposition` | Ω = P ∪ N for a signed measure |
+| `HahnDecomposition::compute(signed_measure)` | Find positive and negative sets |
 
-```rust
-let sm = SignedMeasure::new("signed", &[(set, -1.0)]);
-sm.measure_of(&set);
-sm.total_variation();              // |μ|(Ω)
-let (pos, neg) = sm.jordan_decomposition();  // μ = μ⁺ - μ⁻
-```
+### `riesz` — Riesz Representation Theorem
 
-### Lebesgue Measure
+| Type / Function | Description |
+|---|---|
+| `LinearFunctional` | L: functions → ℝ (linear map) |
+| `LinearFunctional::new(name, values)` | Create from values on basis functions |
+| `lf.evaluate(f_values)` | L(f) |
+| `lf.is_positive()` | Check L(f) ≥ 0 for f ≥ 0 |
+| `lf.norm()` | Operator norm of L |
+| `RieszRepresentation` | The representing measure μ where L(f) = ∫ f dμ |
+| `RieszRepresentation::represent(functional)` | Recover μ from L |
+| `RieszRepresentation::verify(functional, measure)` | Verify L(f) = ∫ f dμ |
 
-#### `Interval`
-A closed interval [a, b] on the real line.
+### `pushforward` — Pushforward Measure
 
-```rust
-let i = Interval::new(0.0, 1.0)?;
-i.length();
-i.contains(0.5);
-i.intersection(&other);
-i.union(&other);
-i.complement(0.0, 10.0);
-```
+| Function | Description |
+|---|---|
+| `pushforward(name, f, mu, domain, codomain)` | T\*μ where (T\*μ)(B) = μ(f⁻¹(B)) |
+| `pushforward_probability(name, f, mu, domain, codomain)` | Pushforward of a probability measure |
+| `pullback(set, f)` | f⁻¹(A) — pullback of a measurable set |
+| `change_of_variables(f, mu, domain, codomain, g)` | ∫ g d(T\*μ) = ∫ (g ∘ T) dμ |
 
-#### `Box`
-A product of intervals in R^n.
+### `agent` — Agent Systems
 
-```rust
-let b = Box::new(vec![Interval::new(0.0, 1.0)?, Interval::new(0.0, 2.0)?]);
-b.volume();          // 2.0
-b.dimension();       // 2
-b.contains(&point);
-b.intersection(&other);
-```
+| Type / Function | Description |
+|---|---|
+| `AgentStateSpace` | A measurable space for agent states |
+| `AgentStateSpace::discrete(name, elements)` | Create finite state space |
+| `BeliefState` | A probability measure on the state space |
+| `BeliefState::uniform(space)` | Uniform belief |
+| `BeliefState::from_weights(space, weights)` | Weighted belief |
+| `BeliefState::point_mass(space, point)` | Certainty at a single state |
+| `bs.probability_of(state)` | P(state) |
+| `bs.probability_of_set(set)` | P(A) |
+| `bs.update(likelihood, space)` | Bayesian update via Radon-Nikodym |
+| `ObservationModel` | Maps states → observations (measurable function) |
+| `om.likelihood(observation, space)` | Likelihood function L(obs \| state) |
+| `UtilityFunction` | f: states → ℝ |
+| `uf.expected_utility(belief, space)` | E[u] = ∫ u dμ (Lebesgue integral) |
+| `Agent` | Complete agent: state space + utility + observation model |
 
-#### `LebesgueMeasure`
-Standard volume measure on R^n.
-
-```rust
-let m = LebesgueMeasure::new(2);  // R^2
-m.measure_box(&b);
-m.measure_interval(&i);                    // 1D only
-m.measure_disjoint_intervals(&intervals);
-m.outer_measure_approx(&points, epsilon);
-```
-
-#### `SimpleIntervalFunction`
-A finite linear combination of indicator functions.
-
-```rust
-let f = SimpleIntervalFunction::new(vec![
-    (Interval::new(0.0, 1.0)?, 3.0),
-    (Interval::new(1.0, 4.0)?, 1.0),
-]);
-f.eval(0.5);       // 3.0
-f.integrate();      // 3*1 + 1*3 = 6.0
-f.supremum();       // 3.0
-```
-
-### Measurable Functions
-
-#### `MeasurableFunction`
-A function between measurable spaces where preimages of measurable sets are measurable.
-
-```rust
-let mf = MeasurableFunction::new("f", &domain, &codomain, mapping);
-mf.is_measurable();
-mf.apply(&element);
-mf.preimage(&measurable_set);
-mf.compose(&other);
-```
-
-### Lebesgue Integral
-
-#### `RealValuedFunction`
-A function on a finite space.
-
-```rust
-let f = RealValuedFunction::new(vec![("a", 1.0), ("b", 2.0)]);
-f.eval("a");
-f.supremum();
-f.infimum();
-f.pointwise_max(&g);
-f.pointwise_min(&g);
-f.abs();
-```
-
-#### Integration
-
-```rust
-integrate(&f, &mu);                       // ∫ f dμ
-integrate_over(&f, &mu, &set);            // ∫_A f dμ
-```
-
-#### Convergence Theorems
-
-```rust
-// Monotone Convergence: f_n ↑ f ⟹ ∫f_n → ∫f
-let (integrals, limit) = monotone_convergence(&functions, &mu);
-
-// Fatou's Lemma: lim inf ∫f_n ≤ ∫(lim inf f_n)
-let (lim_inf_integrals, integral_of_lim_inf) = fatou_lemma(&functions, &mu);
-
-// Dominated Convergence: |f_n| ≤ g, f_n → f ⟹ ∫f_n → ∫f
-let (integrals, limit, converged) = dominated_convergence(&functions, &mu, &dominator);
-```
-
-### Product Measures
-
-```rust
-let (product, product_sa) = product_measure(&mu1, &sa1, &mu2, &sa2);
-
-// Fubini's theorem
-let result = fubini(&f, &mu1, &mu2);
-// ∫∫ f d(μ₁×μ₂) = ∫ [∫ f dμ₂] dμ₁
-```
-
-### Radon-Nikodym Theorem
-
-```rust
-// If ν ≪ μ, find dν/dμ
-let density = radon_nikodym_derivative(&nu, &mu);
-// Verify: ν(A) = ∫_A (dν/dμ) dμ for all measurable A
-verify_radon_nikodym(&nu, &mu, &density);
-```
-
-### Lebesgue Decomposition
-
-```rust
-// Decompose ν = ν_ac + ν_singular
-let (abs_continuous, singular) = lebesgue_decomposition(&nu, &mu);
-// ν_ac ≪ μ, ν_singular ⊥ μ
-```
-
-### Riesz Representation
-
-```rust
-// Every positive linear functional on C(X) is an integral against a measure
-let (representing_measure, integral_value) = riesz_representation(&functional, &space);
-```
-
-### Pushforward Measure
-
-```rust
-// μ∘f⁻¹: the measure induced on the codomain by a measurable map
-let pushfwd = pushforward(&mu, &f);
-// pushfwd(B) = μ(f⁻¹(B))
-```
-
-### Agent Application
-
-```rust
-// Model observations as measurable functions
-let obs = Observation::new(measurable_function);
-
-// Belief update via Radon-Nikodym
-let updated_belief = bayesian_update(&prior, &observation, &evidence);
-// posterior density ∝ likelihood × prior density
-```
+---
 
 ## How It Works
 
-**Sigma-algebras** are built by enumerating all subsets of a finite universal set (power set) or generated from seed sets by closing under complement and union. The `validate()` method checks the three axioms: contains ∅, closed under complement, closed under countable union.
+### Architecture
 
-**Measures** are stored as hash maps from set keys to values. Counting, Dirac, probability, and uniform measures are pre-built constructors. Absolute continuity (ν ≪ μ) is checked by verifying μ(A) = 0 ⟹ ν(A) = 0. Singularity checks for disjoint supports.
+```
+sigma_algebra (measurable sets, σ-algebra generation)
+    ├── measure (non-negative measures, signed measures)
+    │   ├── lebesgue (intervals, boxes, Lebesgue measure on ℝⁿ)
+    │   ├── product (product measures, Fubini/Tonelli)
+    │   ├── radon_nikodym (densities, Bayes updates)
+    │   ├── decomposition (Lebesgue/Hahn decomposition)
+    │   └── pushforward (pushforward/pullback measures)
+    ├── measurable_function (measurable maps, simple functions)
+    │   └── integral (Lebesgue integral, convergence theorems)
+    │       └── riesz (Riesz representation)
+    └── agent (state spaces, beliefs, utilities, observations)
+```
 
-**Lebesgue integration** on finite spaces reduces to Σ f(xᵢ)μ({xᵢ}). For real-valued functions on R, simple interval functions approximate integrands, with integral computed as Σ aᵢ·λ(Aᵢ).
+### Finite Measure Theory
 
-**Convergence theorems** are demonstrated by evaluating sequences of functions:
-- **MCT**: monotone increasing non-negative functions, integrals converge upward.
-- **Fatou**: lim inf of integrals ≤ integral of lim inf.
-- **DCT**: dominated sequences converge in integral.
+All constructions work over **finite sets** with explicit enumeration. A σ-algebra on a finite set is just a collection of subsets closed under complement and union. This makes every operation computable:
 
-**Product measures** are constructed as Cartesian products of sigma-algebras with μ₁×μ₂(A×B) = μ₁(A)·μ₂(B). Fubini's theorem iterates integrals.
+- Measure: stored as a HashMap from sets to values
+- Integral: sum over elements weighted by measure
+- Radon-Nikodym: ratio of measure values element-by-element
+- Fubini: double sum (iterating over product space)
 
-**Radon-Nikodym** computes dν/dμ element-wise for finite spaces: density(x) = ν({x})/μ({x}).
+### Sigma-Algebra Generation
 
-**Lebesgue decomposition** separates ν into absolutely continuous and singular parts with respect to μ.
+Given generators {A₁, A₂, ...}, the generated σ-algebra is the smallest collection containing them that's closed under complement and countable union. For finite sets, we compute this by iterative closure: start with generators + ∅ + Ω, then repeatedly add complements and unions until stable.
+
+### Bayesian Updates as Radon-Nikodym
+
+Bayes' rule says: P(A|obs) ∝ P(obs|A) · P(A). In measure-theoretic terms, the posterior dπ(·|obs) is the Radon-Nikodym derivative of the pushforward times the prior, normalized. This is exactly `BeliefUpdate::from_likelihood`.
+
+---
 
 ## The Math
 
-### Sigma-Algebra
+### σ-Algebra
 
-A collection 𝔉 of subsets of Ω satisfying:
-1. ∅ ∈ 𝔉
-2. A ∈ 𝔉 ⟹ Aᶜ ∈ 𝔉
-3. A₁, A₂, ... ∈ 𝔉 ⟹ ∪Aᵢ ∈ 𝔉
+A **σ-algebra** 𝔉 on Ω satisfies: ∅ ∈ 𝔉, A ∈ 𝔉 ⟹ Aᶜ ∈ 𝔉, A₁, A₂, ... ∈ 𝔉 ⟹ ∪Aᵢ ∈ 𝔉.
 
 ### Measure
 
-A function μ: 𝔉 → [0, ∞] with:
-1. μ(∅) = 0
-2. **Countable additivity**: Aᵢ disjoint ⟹ μ(∪Aᵢ) = Σμ(Aᵢ)
+A **measure** μ on (Ω, 𝔉) satisfies: μ(∅) = 0, μ(A) ≥ 0, and for disjoint {Aᵢ}: μ(∪Aᵢ) = Σμ(Aᵢ).
 
 ### Lebesgue Integral
 
-For a non-negative simple function φ = Σ aᵢ·1_{Aᵢ}:
+For f ≥ 0 measurable:
 
-$$\int \varphi \, d\mu = \sum a_i \, \mu(A_i)$$
+$$\int f \, d\mu = \sup\left\{\int s \, d\mu : s \text{ simple}, s \le f\right\}$$
 
-For general f ≥ 0:
+For general f: ∫ f dμ = ∫ f⁺ dμ - ∫ f⁻ dμ.
 
-$$\int f \, d\mu = \sup\left\{\int \varphi \, d\mu : \varphi \leq f, \varphi \text{ simple}\right\}$$
+### Convergence Theorems
 
-### Monotone Convergence Theorem
-
-If 0 ≤ f₁ ≤ f₂ ≤ ... and fₙ → f pointwise, then:
-
-$$\lim_{n \to \infty} \int f_n \, d\mu = \int f \, d\mu$$
-
-### Fatou's Lemma
-
-$$\int \liminf_{n} f_n \, d\mu \leq \liminf_{n} \int f_n \, d\mu$$
-
-### Dominated Convergence Theorem
-
-If fₙ → f pointwise and |fₙ| ≤ g with ∫g dμ < ∞, then:
-
-$$\lim_{n \to \infty} \int f_n \, d\mu = \int f \, d\mu$$
+- **Monotone Convergence**: If 0 ≤ f₁ ≤ f₂ ≤ ... ↗ f, then ∫ fₙ dμ ↗ ∫ f dμ
+- **Fatou's Lemma**: ∫ lim inf fₙ dμ ≤ lim inf ∫ fₙ dμ
+- **Dominated Convergence**: If fₙ → f and |fₙ| ≤ g ∈ L¹, then ∫ fₙ → ∫ f
 
 ### Radon-Nikodym Theorem
 
-If ν ≪ μ, there exists a unique (up to μ-a.e.) density f = dν/dμ such that:
+If ν ≪ μ (ν absolutely continuous w.r.t. μ), then ∃ f ≥ 0 measurable such that:
 
-$$\nu(A) = \int_A f \, d\mu \quad \forall A \in \mathfrak{F}$$
+$$\nu(A) = \int_A f \, d\mu \quad \text{for all measurable } A$$
 
-### Lebesgue Decomposition
-
-Any σ-finite ν can be uniquely written as ν = ν_ac + ν_s where ν_ac ≪ μ and ν_s ⊥ μ.
+The function f = dν/dμ is the **Radon-Nikodym derivative**. Bayes' rule is a special case.
 
 ### Fubini's Theorem
 
-If f is integrable on (X × Y, μ × ν):
+For f ∈ L¹(μ × ν):
 
-$$\int_{X \times Y} f \, d(\mu \times \nu) = \int_X \left[\int_Y f(x,y) \, d\nu(y)\right] d\mu(x)$$
+$$\int_{X \times Y} f \, d(\mu \times \nu) = \int_X \left(\int_Y f(x,y) \, d\nu(y)\right) d\mu(x)$$
 
-### Riesz Representation Theorem
+### Riesz Representation
 
-Every positive linear functional Λ on C_c(X) corresponds to a unique regular Borel measure μ:
+Every positive linear functional L on C_c(X) has a unique representing measure:
 
-$$\Lambda(f) = \int f \, d\mu$$
+$$L(f) = \int f \, d\mu$$
+
+This connects functional analysis to measure theory.
+
+---
+
+## Running Tests
+
+```bash
+cargo test
+```
+
+134 tests: σ-algebra closure validation, measure additivity, Lebesgue measure on intervals/boxes, measurability verification, integral computation, convergence theorem verification, product measure correctness, Radon-Nikodym computation, decomposition verification, Riesz representation, pushforward correctness, and agent belief updates.
+
+---
 
 ## License
 
